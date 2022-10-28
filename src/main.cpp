@@ -1,7 +1,7 @@
 /*
-  Titre      : Utilisation du RPC avec LED
+  Titre      : Utilisation du RPC avec SERVO
   Auteur     : Yvan Tankeu
-  Date       : 27/10/2022
+  Date       : 28/10/2022
   Description: Stock les données provenant des differents capteurs dans la carte SD du MEM
   envoie les donnees sur TB, faire du RPC, Eteindre le wifi
   Version    : 0.0.1
@@ -14,6 +14,10 @@ bool LedStatus;
 
 // Include pour la carte SD
 #include <SD.h>
+
+// Include pour le servo moteur
+#include <Servo.h>
+
 
 // Include pour le capteur AHTX0
 #include <Adafruit_AHTX0.h>
@@ -28,9 +32,12 @@ bool LedStatus;
 const int CHIPSELECT = 4;
 const int LED_BLEUE = 3;
 const int LED_ROUGE = 14;
+const int PIN_SERVO = 5;
 
 RTC_DS3231 rtc;
 Adafruit_AHTX0 aht;
+
+Servo myservo;  // create servo object to control a servo
 
 String buffer;
 String valHumidite, valTemperature, unixTime = "";
@@ -40,6 +47,7 @@ int espace1, espace2 = 0;
 unsigned int const fileWriteTime = 4000;  // 4 secondes
 unsigned int const timeToSend = 10000;    // 10 secondes
 unsigned int const timeWifiClosed = 5000; // 5 secondes
+int pos = 0;    // variable to store the servo position
 
 #include <Arduino.h>
 
@@ -117,12 +125,11 @@ void setup()
   wifiConnect(); // Branchement au réseau WIFI
   MQTTConnect(); // Branchement au broker MQTT à Thingsboard*/
 
+  myservo.attach(PIN_SERVO);  // attaches the servo on pin 9 to the servo object
+
   // Open serial communications and wait for port to open:
   Serial.begin(9600);
-  /*while (!Serial)
-  {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }*/
+
   pinMode(LED_BLEUE, OUTPUT);
   pinMode(LED_ROUGE, OUTPUT);
 
@@ -161,16 +168,16 @@ void setup()
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
-  File dataFile = SD.open("datalog.txt", FILE_WRITE | O_TRUNC);
+  File dataFile = SD.open("backup.txt", FILE_WRITE | O_TRUNC);
   // dataFile.println("");
   dataFile.close();
 }
 
 void loop()
 {
-  ClientMQTT.loop();
 
   DateTime now = rtc.now();
+  ClientMQTT.loop();
 
   sensors_event_t humidity, temp;
   aht.getEvent(&humidity, &temp);
@@ -181,7 +188,7 @@ void loop()
   if (runEveryShort(fileWriteTime))
   {
 
-    File dataFile = SD.open("datalog.txt", FILE_WRITE);
+    File dataFile = SD.open("backup.txt", FILE_WRITE);
     // if the file is available, write to it:
     if (dataFile)
     {
@@ -193,18 +200,14 @@ void loop()
     }
     else
     {
-      Serial.println("ouverture d'erreur datalog.txt");
+      Serial.println("ouverture d'erreur backup.txt");
     }
   }
 
   if (runEveryLong(timeToSend))
   {
-    wifiConnect(); // Branchement au réseau WIFI
-    MQTTConnect();
 
-    ClientMQTT.loop();
-
-    File dataFile = SD.open("datalog.txt", FILE_READ);
+    File dataFile = SD.open("backup.txt", FILE_READ);
     if (dataFile)
     {
       // read from the file until there's nothing else in it:
@@ -218,41 +221,45 @@ void loop()
         appendPayload("Temperature", valTemperature.toFloat());
         appendPayload("Humidite", valHumidite.toFloat());
         sendPayload();
+
+        delay(500);  
       }
-
-      if (runEveryShort(timeWifiClosed))
-      {
-        status = WL_IDLE_STATUS;
-        WiFi.disconnect();
-        WiFi.end();
-        digitalWrite(LED_BUILTIN, LOW);
-      }
-
-
       // close the file:
       dataFile.close();
-      SD.remove("datalog.txt");
+      SD.remove("backup.txt");
+      ClientMQTT.loop();
+
+      Serial.print("PARAMS : ");
+      Serial.println(RPCData.substring(29, 30));
+
+      if (RPCData != PrevData)
+      {
+        if (RPCData.substring(29, 30) == "H")
+        { 
+          pos = 0;
+          myservo.write(pos); // Servo moteur vers la position 0 vers la gauche 
+          digitalWrite(LED_BLEUE, HIGH);
+          digitalWrite(LED_ROUGE, LOW);
+        }
+        else if (RPCData.substring(29, 30) == "L")
+        {
+          pos = 180;
+          myservo.write(pos); // Servo moteur vers la position 180 vers la droite
+          digitalWrite(LED_BLEUE, LOW);
+          digitalWrite(LED_ROUGE, HIGH);
+        }else
+        {
+          digitalWrite(LED_BLEUE, LOW);
+          digitalWrite(LED_ROUGE, LOW);
+        }
+        PrevData = RPCData;
+      }
     }
     else
     {
       // if the file didn't open, print an error:
-      Serial.println("ouverture d'erreur datalog.txt");
+      Serial.println("backup.txt file not accessible");
     }
   }
 
-  if (LedStatus == true)
-  {
-    digitalWrite(LED_BLEUE, HIGH);
-    digitalWrite(LED_ROUGE, LOW);
-  }
-  else if (LedStatus == false)
-  {
-    digitalWrite(LED_BLEUE, LOW);
-    digitalWrite(LED_ROUGE, HIGH);
-  }
-  else
-  {
-    digitalWrite(LED_BLEUE, LOW);
-    digitalWrite(LED_ROUGE, LOW);
-  }
 }

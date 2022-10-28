@@ -24,21 +24,15 @@ MQTTClient ClientMQTT; // Création d'un client MQTT pour l'échange de donnée 
 String Payload = "{"; // Chaine de caractère qui contiendra le message envoyer de l'objet vers thingsboard
 bool first = false;
 
+String RPCData, PrevData;
+
 void messageReceived(String &topic, String &payload)
 {
-  Serial.println("Message Recu");
-  Serial.println(payload);
+  RPCData = payload;
+  Serial.println("Requete RPC Recu");
+  Serial.println(RPCData);
   Serial.println(topic);
-
-  // Verifie si la valeur de la methode  est "I" d'intensite
-  if (payload.substring(28, 29) == "H")
-  {
-    LedStatus = true;
-  }else if (payload.substring(28, 29) == "L")
-  {
-    LedStatus = false;
-        Serial.println(LedStatus);
-  }
+  
 }
 
 // Fonctionnalité de branchement utilisant le protocole MQTT
